@@ -86,15 +86,17 @@ export default function HomePage() {
     }
     setCreating(true);
     try {
-      const res = await fetch("/api/rooms", {
+      const res = await fetch("/api/host/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Không tạo được phòng");
-      localStorage.setItem(`quiz_host_${data.code}`, data.hostToken);
-      router.push(`/host/${data.code}`);
+      if (!res.ok) throw new Error(data.error || "Sai mật khẩu quản trò.");
+      // Remembered so the dashboard (and its "Tạo phòng mới" button) can
+      // create rooms without asking for the password again every time.
+      localStorage.setItem("quiz_host_password", password);
+      router.push("/host");
     } catch (e) {
       setLoginError(e.message);
       setCreating(false);
