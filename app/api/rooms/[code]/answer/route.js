@@ -16,6 +16,9 @@ export async function POST(request, { params }) {
   if (!playerId || !room.players[playerId]) {
     return NextResponse.json({ error: "Người chơi không hợp lệ." }, { status: 400 });
   }
+  if (room.paused) {
+    return NextResponse.json({ error: "Trò chơi đang tạm dừng, vui lòng chờ." }, { status: 400 });
+  }
   if (room.phase !== "question") {
     return NextResponse.json({ error: "Hiện không phải lúc trả lời câu hỏi." }, { status: 400 });
   }

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { getRoom, isHost, touchRoom, saveRoom } from "@/lib/store";
 
-// Single "advance the game" action the host uses to drive the whole
-// state machine: round_intro -> question -> question_result -> (next
-// question or round_leaderboard) -> finished.
+// Single "advance the game" action, called automatically by the host
+// client's timers (question timer expiring, reveal delay elapsing) to
+// drive the whole state machine: round_intro -> question ->
+// question_result -> (next question or round_leaderboard) -> finished.
+// Blocked while the host has paused the game.
 export async function POST(request, { params }) {
   const room = await getRoom(params.code);
   if (!room) {
@@ -12,6 +14,9 @@ export async function POST(request, { params }) {
   const hostToken = request.headers.get("x-host-token");
   if (!isHost(room, hostToken)) {
     return NextResponse.json({ error: "Bạn không có quyền quản trò phòng này." }, { status: 403 });
+  }
+  if (room.paused) {
+    return NextResponse.json({ error: "Trò chơi đang tạm dừng." }, { status: 400 });
   }
 
   const rd = room.roundData[room.round];
@@ -34,7 +39,11 @@ export async function POST(request, { params }) {
         room.phase = "question";
         room.questionStartedAt = Date.now();
       } else {
+        // Round finished: stop the game entirely (per host request) until
+        // the host explicitly starts the next round or ends the game.
         room.phase = "round_leaderboard";
+        room.paused = true;
+        room.pausedAt = Date.now();
       }
       break;
     }
@@ -43,7 +52,7 @@ export async function POST(request, { params }) {
         room.phase = "finished";
       } else {
         return NextResponse.json(
-          { error: "Hãy nhập thông điệp cho vòng tiếp theo để tiếp tục." },
+          { error: "Hãy bắt đầu vòng tiếp theo để tiếp tục." },
           { status: 400 }
         );
       }
@@ -51,7 +60,7 @@ export async function POST(request, { params }) {
     }
     case "lobby": {
       return NextResponse.json(
-        { error: "Hãy nhập thông điệp vòng 1 để bắt đầu." },
+        { error: "Hãy tải file Excel thông điệp và bắt đầu vòng 1 để bắt đầu." },
         { status: 400 }
       );
     }
@@ -64,5 +73,5 @@ export async function POST(request, { params }) {
 
   touchRoom(room);
   await saveRoom(room);
-  return NextResponse.json({ ok: true, phase: room.phase });
+  return NextResponse.json({ ok: true, phase: room.phase, paused: room.paused });
 }
