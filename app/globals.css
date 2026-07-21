@@ -217,6 +217,78 @@ textarea.input {
   margin: 6px 0 16px;
 }
 
+.qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 18px;
+}
+
+.qr-wrap img {
+  width: 220px;
+  height: 220px;
+  background: #fff;
+  padding: 10px;
+  border-radius: 16px;
+  border: 1px solid #e3e3ef;
+}
+
+.qr-wrap .qr-hint {
+  font-size: 0.85rem;
+  color: #7a7a8c;
+  text-align: center;
+  word-break: break-all;
+}
+
+.room-pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.room-pick-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f4f4f8;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  padding: 12px 16px;
+  transition: all 0.12s;
+  text-align: left;
+}
+
+.room-pick-btn:hover,
+.room-pick-btn:active {
+  border-color: var(--purple);
+  background: #eef7f0;
+}
+
+.room-pick-code {
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--purple);
+}
+
+.room-pick-count {
+  font-size: 0.9rem;
+  color: #7a7a8c;
+}
+
+.locked-code {
+  font-size: 2.2rem;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  text-align: center;
+  color: var(--purple);
+  background: #e8f5ec;
+  border-radius: 14px;
+  padding: 10px;
+  margin-bottom: 18px;
+}
+
 .muted {
   color: var(--muted);
   font-size: 0.9rem;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PLAYER_ICONS } from "@/lib/icons";
 
@@ -17,6 +17,36 @@ export default function HomePage() {
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [creating, setCreating] = useState(false);
+
+  const [openRooms, setOpenRooms] = useState(null); // null = still loading
+  const [roomsError, setRoomsError] = useState(false);
+
+  // Lets a player pick a currently-open room instead of typing/scanning a
+  // code — refreshed regularly since rooms open and fill up while this
+  // page just sits there in someone's browser.
+  useEffect(() => {
+    let stop = false;
+    async function loadRooms() {
+      try {
+        const res = await fetch("/api/rooms/list", { cache: "no-store" });
+        const data = await res.json();
+        if (!stop && res.ok) {
+          setOpenRooms(data.rooms || []);
+          setRoomsError(false);
+        } else if (!stop) {
+          setRoomsError(true);
+        }
+      } catch {
+        if (!stop) setRoomsError(true);
+      }
+    }
+    loadRooms();
+    const id = setInterval(loadRooms, 3000);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+  }, []);
 
   async function joinRoom(e) {
     e.preventDefault();
@@ -91,8 +121,35 @@ export default function HomePage() {
           <p>Trò chơi trắc nghiệm trực tiếp — 3 vòng, dựa trên thông điệp của quản trò</p>
         </div>
 
+        <div className="card">
+          <h2>Phòng đang mở</h2>
+          {openRooms === null ? (
+            <p className="muted">Đang tải danh sách phòng...</p>
+          ) : openRooms.length === 0 ? (
+            <p className="muted">
+              {roomsError
+                ? "Không tải được danh sách phòng, thử lại sau."
+                : "Chưa có phòng nào đang mở. Nhờ quản trò tạo phòng, hoặc quét mã QR / nhập mã bên dưới."}
+            </p>
+          ) : (
+            <div className="room-pick-list">
+              {openRooms.map((r) => (
+                <button
+                  key={r.code}
+                  type="button"
+                  className="room-pick-btn"
+                  onClick={() => router.push(`/join/${r.code}`)}
+                >
+                  <span className="room-pick-code">{r.code}</span>
+                  <span className="room-pick-count">👥 {r.playerCount} người</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         <form className="card" onSubmit={joinRoom}>
-          <h2>Tham gia phòng</h2>
+          <h2>Hoặc nhập mã phòng thủ công</h2>
           <div className="field">
             <label>Mã phòng</label>
             <input
