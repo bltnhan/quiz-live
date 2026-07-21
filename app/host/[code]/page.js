@@ -6,6 +6,13 @@ import { useRouter } from "next/navigation";
 const ROUND_TOPICS = { 1: "Pivot Excel", 2: "Excel Essential", 3: "PowerPoint Design" };
 const OPTION_SHAPES = ["▲", "◆", "●", "■"];
 
+// How long to auto-hold each "in-between" screen before the game
+// advances itself. The actual question timer instead comes from the
+// server (questionStartedAt + questionDuration), so it stays accurate
+// even if this tab is backgrounded for a bit.
+const ROUND_INTRO_MS = 3000;
+const REVEAL_MS = 4500;
+
 function Countdown({ questionStartedAt, questionDuration, serverTime }) {
   const [now, setNow] = useState(Date.now());
   const offsetRef = useRef(0);
@@ -42,8 +49,12 @@ export default function HostPage({ params }) {
   const [state, setState] = useState(null);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
-  const [draftMessage, setDraftMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadError, setUploadError] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  const autoTimerRef = useRef(null);
 
   useEffect(() => {
     const t = localStorage.getItem(`quiz_host_${code}`);
@@ -100,22 +111,92 @@ export default function HostPage({ params }) {
     }
   }
 
-  async function startRound(roundNumber) {
-    if (!draftMessage.trim()) {
-      setActionError("Vui lòng nhập thông điệp cho vòng này.");
-      return;
-    }
-    try {
-      await callApi("/round", { round: roundNumber, message: draftMessage });
-      setDraftMessage("");
-    } catch {}
-  }
-
   async function next() {
     try {
       await callApi("/next", {});
     } catch {}
   }
+
+  async function startRound(roundNumber) {
+    try {
+      await callApi("/round", { round: roundNumber });
+    } catch {}
+  }
+
+  async function togglePause() {
+    try {
+      await callApi("/pause", { paused: !state.paused });
+    } catch {}
+  }
+
+  // Ends the game from the round-3 leaderboard: that screen is auto-paused
+  // (see server /next route), so we need to lift the pause before /next
+  // can move the room into "finished".
+  async function finishGame() {
+    try {
+      await callApi("/pause", { paused: false });
+      await callApi("/next", {});
+    } catch {}
+  }
+
+  async function handleUpload() {
+    if (!uploadFile || !hostToken) return;
+    setUploading(true);
+    setUploadError("");
+    try {
+      const fd = new FormData();
+      fd.append("file", uploadFile);
+      const res = await fetch(`/api/rooms/${code}/upload`, {
+        method: "POST",
+        headers: { "x-host-token": hostToken },
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Tải file thất bại.");
+      setUploadFile(null);
+    } catch (e) {
+      setUploadError(e.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  // Drives the whole "chạy liên tục" flow: whenever the round/question
+  // phase changes (and the game isn't paused), schedule exactly one
+  // auto-advance call for whenever that phase should end on its own.
+  // Re-running only depends on the fields that actually mark a new phase,
+  // so a poll tick that returns the same phase doesn't reset the timer.
+  useEffect(() => {
+    if (autoTimerRef.current) {
+      clearTimeout(autoTimerRef.current);
+      autoTimerRef.current = null;
+    }
+    if (!state || state.paused) return;
+
+    const offset = state.serverTime - Date.now();
+    const serverNow = () => Date.now() + offset;
+
+    let delay = null;
+    if (state.phase === "round_intro") {
+      delay = ROUND_INTRO_MS;
+    } else if (state.phase === "question" && state.questionStartedAt) {
+      delay = state.questionStartedAt + state.questionDuration - serverNow() + 350;
+    } else if (state.phase === "question_result") {
+      delay = REVEAL_MS;
+    }
+
+    if (delay === null) return;
+    delay = Math.max(300, delay);
+
+    autoTimerRef.current = setTimeout(() => {
+      next();
+    }, delay);
+
+    return () => {
+      if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.phase, state?.paused, state?.questionStartedAt, state?.questionIndex, state?.round]);
 
   if (hostToken === undefined) {
     return (
@@ -165,6 +246,8 @@ export default function HostPage({ params }) {
 
   const nextRoundNumber = state.round + 1;
   const nextTopic = ROUND_TOPICS[nextRoundNumber];
+  const showPauseToggle =
+    state.phase === "round_intro" || state.phase === "question" || state.phase === "question_result";
 
   return (
     <main className="page">
@@ -178,6 +261,19 @@ export default function HostPage({ params }) {
           <div className="room-code">{code}</div>
           <p className="center-text muted">👥 {state.playerCount} người chơi đã tham gia</p>
         </div>
+
+        {showPauseToggle && (
+          <div className="card center-text">
+            {state.paused && <p className="error" style={{ marginTop: 0 }}>⏸ Trò chơi đang tạm dừng</p>}
+            <button
+              className={state.paused ? "btn btn-green" : "btn btn-secondary"}
+              disabled={busy}
+              onClick={togglePause}
+            >
+              {state.paused ? "▶ Tiếp tục" : "⏸ Tạm ngưng"}
+            </button>
+          </div>
+        )}
 
         {state.phase === "lobby" && (
           <div className="card">
@@ -194,25 +290,49 @@ export default function HostPage({ params }) {
               </div>
             )}
 
-            <h2 style={{ marginTop: 22 }}>Vòng 1: {ROUND_TOPICS[1]}</h2>
+            <h2 style={{ marginTop: 22 }}>Nạp thông điệp từ file Excel</h2>
             <p className="muted">
-              Nhập thông điệp cho vòng 1. Hệ thống sẽ tự tạo 5 câu hỏi trắc nghiệm, đáp án
-              đúng chính là các từ khoá trong thông điệp này. Nên viết 3–5 câu có chứa các
-              thuật ngữ/từ khoá cụ thể (VD: PivotTable, Slicer, VLOOKUP...) để câu hỏi rõ
-              ràng và hay hơn.
+              Tải lên file Excel chứa thông điệp cho cả 3 vòng (dùng file mẫu đã cung cấp, hoặc
+              file tự soạn với cột &quot;Vòng&quot; và cột &quot;Thông điệp&quot;). Hệ thống tự
+              đọc và sinh 5 câu hỏi cho từng vòng — không cần nhập tay.
             </p>
             <div className="field">
-              <textarea
+              <input
+                type="file"
+                accept=".xlsx,.xls"
                 className="input"
-                placeholder={`Nhập nội dung thông điệp về "${ROUND_TOPICS[1]}"...`}
-                value={draftMessage}
-                onChange={(e) => setDraftMessage(e.target.value)}
+                onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
               />
             </div>
-            {actionError && <div className="error">{actionError}</div>}
-            <button className="btn btn-green" disabled={busy} onClick={() => startRound(1)}>
-              Bắt đầu Vòng 1 ▶
+            {uploadError && <div className="error">{uploadError}</div>}
+            <button
+              type="button"
+              className="btn btn-blue"
+              disabled={uploading || !uploadFile}
+              onClick={handleUpload}
+              style={{ marginBottom: 16 }}
+            >
+              {uploading ? "Đang tải lên..." : "📤 Tải lên file Excel"}
             </button>
+
+            {state.hasUpload && (
+              <div>
+                <p className="muted">
+                  ✅ Đã nạp thông điệp{state.uploadedFileName ? ` từ ${state.uploadedFileName}` : ""}:
+                </p>
+                {[1, 2, 3].map((r) => (
+                  <p key={r} className="muted" style={{ fontSize: 13 }}>
+                    <strong>Vòng {r} — {ROUND_TOPICS[r]}:</strong>{" "}
+                    {(state.uploadPreview && state.uploadPreview[r]) || "(đã nạp)"}
+                    {state.uploadPreview && state.uploadPreview[r]?.length >= 220 ? "…" : ""}
+                  </p>
+                ))}
+                {actionError && <div className="error">{actionError}</div>}
+                <button className="btn btn-green" disabled={busy} onClick={() => startRound(1)}>
+                  Bắt đầu Vòng 1 ▶
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -220,11 +340,7 @@ export default function HostPage({ params }) {
           <div className="card center-text">
             <span className="topic-badge">Vòng {state.round} / 3</span>
             <p className="big-title">{state.topic}</p>
-            <p className="muted">5 câu hỏi đã sẵn sàng. Bấm để hiển thị câu hỏi đầu tiên.</p>
-            {actionError && <div className="error">{actionError}</div>}
-            <button className="btn btn-green" disabled={busy} onClick={next}>
-              Bắt đầu câu hỏi ▶
-            </button>
+            <p className="muted">5 câu hỏi sắp bắt đầu tự động...</p>
           </div>
         )}
 
@@ -249,10 +365,6 @@ export default function HostPage({ params }) {
             <p className="muted center-text" style={{ marginTop: 14 }}>
               ✅ {state.questionStats?.answeredCount || 0} / {state.questionStats?.totalPlayers || 0} người đã trả lời
             </p>
-            {actionError && <div className="error">{actionError}</div>}
-            <button className="btn btn-red" disabled={busy} onClick={next}>
-              Xem đáp án ⏹
-            </button>
           </div>
         )}
 
@@ -294,16 +406,17 @@ export default function HostPage({ params }) {
                 ))}
               </div>
             )}
-            {actionError && <div className="error">{actionError}</div>}
-            <button className="btn btn-blue" disabled={busy} onClick={next}>
-              {state.questionIndex + 1 < state.totalQuestions ? "Câu tiếp theo ▶" : "Xem bảng xếp hạng vòng ▶"}
-            </button>
+            <p className="muted center-text" style={{ marginTop: 14 }}>
+              {state.questionIndex + 1 < state.totalQuestions
+                ? "Câu tiếp theo sắp hiện ra tự động..."
+                : "Sắp hiện bảng xếp hạng vòng..."}
+            </p>
           </div>
         )}
 
         {state.phase === "round_leaderboard" && (
           <div className="card">
-            <h2>Bảng xếp hạng — Vòng {state.round}</h2>
+            <h2>⏸ Vòng {state.round} đã kết thúc — Bảng xếp hạng</h2>
             <ol className="leaderboard">
               {state.leaderboard?.map((p) => (
                 <li key={p.id} className={p.rank <= 3 ? `rank-${p.rank}` : ""}>
@@ -316,31 +429,20 @@ export default function HostPage({ params }) {
 
             {state.round < 3 ? (
               <>
-                <h2 style={{ marginTop: 22 }}>
-                  Vòng {nextRoundNumber}: {nextTopic}
-                </h2>
-                <p className="muted">
-                  Nhập thông điệp cho vòng tiếp theo (nên 3–5 câu, có từ khoá cụ thể để câu
-                  hỏi rõ ràng và hay hơn).
+                <p className="muted" style={{ marginTop: 22 }}>
+                  Trò chơi đang tạm dừng. Bấm nút bên dưới khi sẵn sàng cho Vòng {nextRoundNumber}:{" "}
+                  {nextTopic}.
                 </p>
-                <div className="field">
-                  <textarea
-                    className="input"
-                    placeholder={`Nhập nội dung thông điệp về "${nextTopic}"...`}
-                    value={draftMessage}
-                    onChange={(e) => setDraftMessage(e.target.value)}
-                  />
-                </div>
                 {actionError && <div className="error">{actionError}</div>}
                 <button className="btn btn-green" disabled={busy} onClick={() => startRound(nextRoundNumber)}>
-                  Bắt đầu Vòng {nextRoundNumber} ▶
+                  ▶ Tiếp tục — Bắt đầu Vòng {nextRoundNumber}
                 </button>
               </>
             ) : (
               <>
                 {actionError && <div className="error">{actionError}</div>}
-                <button className="btn btn-green" disabled={busy} onClick={next}>
-                  Kết thúc trò chơi — Xem kết quả chung cuộc 🏆
+                <button className="btn btn-green" disabled={busy} onClick={finishGame}>
+                  ▶ Tiếp tục — Xem kết quả chung cuộc 🏆
                 </button>
               </>
             )}
