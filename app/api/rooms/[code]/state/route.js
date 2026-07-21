@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getRoom, isHost, serializeState } from "@/lib/store";
 
 export async function GET(request, { params }) {
-  const room = getRoom(params.code);
+  const room = await getRoom(params.code);
   if (!room) {
     return NextResponse.json({ error: "Không tìm thấy phòng." }, { status: 404 });
   }

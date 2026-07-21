@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { getRoom, touchRoom, currentQuestion, questionAnswers, recordAnswer } from "@/lib/store";
+import { getRoom, touchRoom, saveRoom, currentQuestion, questionAnswers, recordAnswer } from "@/lib/store";
 import { computeScore } from "@/lib/scoring";
 
 export async function POST(request, { params }) {
-  const room = getRoom(params.code);
+  const room = await getRoom(params.code);
   if (!room) {
     return NextResponse.json({ error: "Không tìm thấy phòng." }, { status: 404 });
   }
@@ -49,6 +49,7 @@ export async function POST(request, { params }) {
   recordAnswer(room, room.round, room.currentQuestionIndex, playerId, optionIndex, elapsed, score);
   room.players[playerId].score += score;
   touchRoom(room);
+  await saveRoom(room);
 
   return NextResponse.json({
     ok: true,

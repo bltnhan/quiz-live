@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getRoom, isHost, touchRoom } from "@/lib/store";
+import { getRoom, isHost, touchRoom, saveRoom } from "@/lib/store";
 import { generateQuestions } from "@/lib/questionGen";
 import { TOPICS } from "@/lib/wordbanks";
 
@@ -7,7 +7,7 @@ import { TOPICS } from "@/lib/wordbanks";
 // multiple-choice questions whose correct answers are keywords pulled
 // straight out of that message.
 export async function POST(request, { params }) {
-  const room = getRoom(params.code);
+  const room = await getRoom(params.code);
   if (!room) {
     return NextResponse.json({ error: "Không tìm thấy phòng." }, { status: 404 });
   }
@@ -48,6 +48,7 @@ export async function POST(request, { params }) {
   room.questionStartedAt = null;
   room.phase = "round_intro";
   touchRoom(room);
+  await saveRoom(room);
 
   return NextResponse.json({ ok: true, topic: TOPICS[round], questions });
 }

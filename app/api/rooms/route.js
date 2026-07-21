@@ -10,6 +10,6 @@ export async function POST(request) {
     return NextResponse.json({ error: "Sai mật khẩu quản trò." }, { status: 401 });
   }
 
-  const room = createRoom();
+  const room = await createRoom();
   return NextResponse.json({ code: room.code, hostToken: room.hostToken });
 }

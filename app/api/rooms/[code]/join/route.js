@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { getRoom, addPlayer } from "@/lib/store";
+import { getRoom, addPlayer, saveRoom } from "@/lib/store";
 
 export async function POST(request, { params }) {
-  const room = getRoom(params.code);
+  const room = await getRoom(params.code);
   if (!room) {
     return NextResponse.json({ error: "Không tìm thấy phòng. Kiểm tra lại mã phòng." }, { status: 404 });
   }
@@ -22,5 +22,6 @@ export async function POST(request, { params }) {
   }
 
   const player = addPlayer(room, name, icon);
+  await saveRoom(room);
   return NextResponse.json({ playerId: player.id, name: player.name, icon: player.icon });
 }

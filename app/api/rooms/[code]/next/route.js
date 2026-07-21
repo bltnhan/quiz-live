@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { getRoom, isHost, touchRoom } from "@/lib/store";
+import { getRoom, isHost, touchRoom, saveRoom } from "@/lib/store";
 
 // Single "advance the game" action the host uses to drive the whole
 // state machine: round_intro -> question -> question_result -> (next
 // question or round_leaderboard) -> finished.
 export async function POST(request, { params }) {
-  const room = getRoom(params.code);
+  const room = await getRoom(params.code);
   if (!room) {
     return NextResponse.json({ error: "Không tìm thấy phòng." }, { status: 404 });
   }
@@ -63,5 +63,6 @@ export async function POST(request, { params }) {
   }
 
   touchRoom(room);
+  await saveRoom(room);
   return NextResponse.json({ ok: true, phase: room.phase });
 }
